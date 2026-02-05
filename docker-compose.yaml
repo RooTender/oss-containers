@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    container_name: parabol-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pgparaboladmin
+      POSTGRES_PASSWORD: parabol
+      POSTGRES_DB: parabol-saas
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - parabol-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pgparaboladmin -d parabol-saas"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: redis:8.4.0-alpine
+    container_name: parabol-redis
+    restart: unless-stopped
+    networks:
+      - parabol-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  parabol-init:
+    image: parabol:local
+    container_name: parabol-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379
+    command: ["node", "dist/preDeploy.js"]
+    restart: "no"
+    networks:
+      - parabol-net
+
+  parabol:
+    image: parabol:local
+    container_name: parabol-app
+    restart: unless-stopped
+    depends_on:
+      parabol-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379
+    command: ["node", "./dist/web.js"]
+    volumes:
+      - parabol-data:/home/node/parabol/self-hosted
+    networks:
+      - parabol-net
+
+networks:
+  parabol-net:
+
+volumes:
+  pgdata:
+  parabol-data:
