@@ -10,118 +10,91 @@ ENV_PATH = "./.env"
 IMAGE = "parabol:local"
 LOCAL_DOCKERFILE = os.path.abspath("setup.dockerfile")
 CACHE_DIR = os.path.abspath(".docker-cache")
-
+BUILDER_NAME = "parabol-builder"
 
 def die(msg, code=1):
     print("ERROR:", msg, file=sys.stderr)
     sys.exit(code)
 
+def run(cmd, env):
+    print("> " + " ".join(cmd))
+    subprocess.run(cmd, check=True, env=env)
 
-def run(cmd, env=None, allow_fail=False):
-    print(">", " ".join(cmd))
-    r = subprocess.run(cmd, env=env)
-    if r.returncode != 0 and not allow_fail:
-        sys.exit(r.returncode)
-    return r.returncode
-
-
-def run_output(cmd, env=None):
-    print(">", " ".join(cmd))
-    return subprocess.check_output(cmd, env=env, text=True)
-
+def out(cmd, env):
+    print("> " + " ".join(cmd))
+    return subprocess.check_output(cmd, env=env, text=True).strip()
 
 def replace_line(path, needle, replacement):
     with open(path, "r", encoding="utf-8") as f:
         lines = f.readlines()
-
-    out = []
-    replaced = False
-
+    out_lines, replaced = [], False
     for line in lines:
         if needle in line:
-            out.append(replacement + "\n")
+            out_lines.append(replacement + "\n")
             replaced = True
         else:
-            out.append(line)
-
+            out_lines.append(line)
     if not replaced:
-        out.append(replacement + "\n")
-
+        out_lines.append(replacement + "\n")
     with open(path, "w", encoding="utf-8") as f:
-        f.writelines(out)
-
+        f.writelines(out_lines)
 
 def ensure_buildx(env):
     try:
-        run_output(["docker", "info"], env=env)
+        l = out(["docker", "buildx", "ls"], env)
     except subprocess.CalledProcessError:
-        die("Cannot talk to Docker daemon. Rootless docker env missing.")
-
-    bx = subprocess.run(
-        ["docker", "buildx", "version"],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    if bx.returncode != 0:
-        die("docker buildx not available")
-
-    result = run_output(["docker", "buildx", "ls"], env=env)
-
-    if "*" in result:
-        print("buildx builder already active")
+        l = ""
+    if "*" in l:
         return
 
-    print("Creating buildx builder...")
-    run(["docker", "buildx", "create", "--use"], env=env)
+    try:
+        run(["docker", "buildx", "create", "--name", BUILDER_NAME, "--driver", "docker-container", "--use"], env)
+        run(["docker", "buildx", "inspect", BUILDER_NAME, "--bootstrap"], env)
+    except subprocess.CalledProcessError as e:
+        die("buildx create/bootstrap failed: " + str(e))
 
+def main():
+    tmp = tempfile.mkdtemp(prefix="parabol-build-", dir=os.path.expanduser("~"))
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    env = dict(os.environ)
+    env["DOCKER_BUILDKIT"] = "1"
 
-tmp = tempfile.mkdtemp(prefix="parabol-build-", dir=os.path.expanduser("~"))
-print("tmp:", tmp)
+    try:
+        ensure_buildx(env)
 
-os.makedirs(CACHE_DIR, exist_ok=True)
+        run(["git", "clone", "--depth", "1", REPO, tmp], env)
 
-env = dict(os.environ)
-env["DOCKER_BUILDKIT"] = "1"
+        env_example = os.path.join(tmp, ".env.example")
+        if not os.path.exists(env_example):
+            die(".env.example missing in repo")
+        shutil.copyfile(env_example, ENV_PATH)
 
-try:
-    ensure_buildx(env)
+        replace_line(ENV_PATH, "# IS_ENTERPRISE", "IS_ENTERPRISE=true")
+        replace_line(ENV_PATH, "HOST=", "HOST='10.127.80.126'")
+        replace_line(ENV_PATH, "PROTO=", "PROTO='http'")
+        replace_line(ENV_PATH, "PORT=", "PORT='80'")
+        replace_line(ENV_PATH, "CDN_BASE_URL=", "CDN_BASE_URL='//10.127.80.126/parabol'")
 
-    run(["git", "clone", "--depth", "1", REPO, tmp], env=env)
+        shutil.copyfile(ENV_PATH, os.path.join(tmp, ".env"))
 
-    env_example = os.path.join(tmp, ".env.example")
-    if not os.path.exists(env_example):
-        die(".env.example missing in repo")
+        sha = out(["git", "-C", tmp, "rev-parse", "HEAD"], env)
 
-    shutil.copyfile(env_example, ENV_PATH)
+        build_cmd = [
+            "docker", "buildx", "build",
+            "--cache-from", f"type=local,src={CACHE_DIR}",
+            "--cache-to", f"type=local,dest={CACHE_DIR},mode=max",
+            "--build-arg", "PUBLIC_URL=/parabol",
+            "--build-arg", "CDN_BASE_URL=//10.127.80.126/parabol",
+            "--build-arg", f"DD_GIT_COMMIT_SHA={sha}",
+            "--build-arg", f"DD_GIT_REPOSITORY_URL={REPO}",
+            "-f", LOCAL_DOCKERFILE,
+            "-t", IMAGE,
+            tmp
+        ]
+        run(build_cmd, env)
+        print("Built image:", IMAGE)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
-    replace_line(ENV_PATH, "# IS_ENTERPRISE", "IS_ENTERPRISE=true")
-    replace_line(ENV_PATH, "HOST=", "HOST='10.127.80.126'")
-    replace_line(ENV_PATH, "PROTO=", "PROTO='http'")
-    replace_line(ENV_PATH, "PORT=", "PORT='80'")
-    replace_line(ENV_PATH, "CDN_BASE_URL=", "CDN_BASE_URL='//10.127.80.126/parabol'")
-
-    shutil.copyfile(ENV_PATH, os.path.join(tmp, ".env"))
-
-    sha = run_output(["git", "-C", tmp, "rev-parse", "HEAD"], env=env).strip()
-
-    build_cmd = [
-        "docker", "buildx", "build",
-        "--cache-from", f"type=local,src={CACHE_DIR}",
-        "--cache-to", f"type=local,dest={CACHE_DIR},mode=max",
-        "--build-arg", "PUBLIC_URL=/parabol",
-        "--build-arg", "CDN_BASE_URL=//10.127.80.126/parabol",
-        "--build-arg", f"DD_GIT_COMMIT_SHA={sha}",
-        "--build-arg", f"DD_GIT_REPOSITORY_URL={REPO}",
-        "-f", LOCAL_DOCKERFILE,
-        "-t", IMAGE,
-        tmp
-    ]
-
-    run(build_cmd, env=env)
-
-    print("Built image:", IMAGE)
-
-finally:
-    shutil.rmtree(tmp, ignore_errors=True)
+if __name__ == "__main__":
+    main()
