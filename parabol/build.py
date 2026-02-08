@@ -18,7 +18,6 @@ def die(msg, code=1):
 
 
 def run(cmd, env=None, allow_fail=False):
-    """Run command, print it and exit on non-zero (unless allow_fail)."""
     print(">", " ".join(cmd))
     r = subprocess.run(cmd, env=env)
     if r.returncode != 0 and not allow_fail:
@@ -27,7 +26,6 @@ def run(cmd, env=None, allow_fail=False):
 
 
 def run_output(cmd, env=None):
-    """Run command and return stdout (text). Raises on non-zero."""
     print(">", " ".join(cmd))
     return subprocess.check_output(cmd, env=env, text=True)
 
@@ -54,35 +52,38 @@ def replace_line(path, needle, replacement):
 
 
 def ensure_buildx(env):
-    """Ensure buildx is available and a builder is active. Uses the provided env."""
     try:
         run_output(["docker", "info"], env=env)
     except subprocess.CalledProcessError:
-        die("Cannot talk to Docker daemon. Upewnij się, że w tym shellu docker działa (rootless: poprawnie ustawiony DOCKER_HOST / XDG_RUNTIME_DIR).")
+        die("Cannot talk to Docker daemon. Rootless docker env missing.")
 
-    bx = subprocess.run(["docker", "buildx", "version"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    bx = subprocess.run(
+        ["docker", "buildx", "version"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
     if bx.returncode != 0:
-        die("docker buildx is not available in your docker CLI. Ensure docker CLI supports buildx.")
+        die("docker buildx not available")
 
-    try:
-        result = run_output(["docker", "buildx", "ls"], env=env)
-    except subprocess.CalledProcessError:
-        die("Failed to list buildx builders. Check Docker daemon / buildx installation.")
+    result = run_output(["docker", "buildx", "ls"], env=env)
 
     if "*" in result:
         print("buildx builder already active")
         return
 
-    print("Creating and using a new buildx builder...")
+    print("Creating buildx builder...")
     run(["docker", "buildx", "create", "--use"], env=env)
 
 
 tmp = tempfile.mkdtemp(prefix="parabol-build-", dir=os.path.expanduser("~"))
 print("tmp:", tmp)
+
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-env = os.environ.copy()
-env.setdefault("DOCKER_BUILDKIT", "1")
+env = dict(os.environ)
+env["DOCKER_BUILDKIT"] = "1"
 
 try:
     ensure_buildx(env)
@@ -91,7 +92,8 @@ try:
 
     env_example = os.path.join(tmp, ".env.example")
     if not os.path.exists(env_example):
-        die(f".env.example not found in repo root ({env_example})")
+        die(".env.example missing in repo")
+
     shutil.copyfile(env_example, ENV_PATH)
 
     replace_line(ENV_PATH, "# IS_ENTERPRISE", "IS_ENTERPRISE=true")
@@ -108,8 +110,8 @@ try:
         "docker", "buildx", "build",
         "--cache-from", f"type=local,src={CACHE_DIR}",
         "--cache-to", f"type=local,dest={CACHE_DIR},mode=max",
-        "--build-arg", f"PUBLIC_URL=/parabol",
-        "--build-arg", f"CDN_BASE_URL=//10.127.80.126/parabol",
+        "--build-arg", "PUBLIC_URL=/parabol",
+        "--build-arg", "CDN_BASE_URL=//10.127.80.126/parabol",
         "--build-arg", f"DD_GIT_COMMIT_SHA={sha}",
         "--build-arg", f"DD_GIT_REPOSITORY_URL={REPO}",
         "-f", LOCAL_DOCKERFILE,
@@ -120,5 +122,6 @@ try:
     run(build_cmd, env=env)
 
     print("Built image:", IMAGE)
+
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
