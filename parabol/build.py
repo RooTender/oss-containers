@@ -1,8 +1,8 @@
+#!/usr/bin/env python3
 import subprocess
 import tempfile
 import shutil
 import os
-import json
 import sys
 
 REPO = "https://github.com/ParabolInc/parabol.git"
@@ -11,11 +11,26 @@ IMAGE = "parabol:local"
 LOCAL_DOCKERFILE = os.path.abspath("setup.dockerfile")
 CACHE_DIR = os.path.abspath(".docker-cache")
 
+
+def die(msg, code=1):
+    print("ERROR:", msg, file=sys.stderr)
+    sys.exit(code)
+
+
 def run(cmd, env=None, allow_fail=False):
+    """Run command, print it and exit on non-zero (unless allow_fail)."""
     print(">", " ".join(cmd))
     r = subprocess.run(cmd, env=env)
-    if not allow_fail and r.returncode != 0:
+    if r.returncode != 0 and not allow_fail:
         sys.exit(r.returncode)
+    return r.returncode
+
+
+def run_output(cmd, env=None):
+    """Run command and return stdout (text). Raises on non-zero."""
+    print(">", " ".join(cmd))
+    return subprocess.check_output(cmd, env=env, text=True)
+
 
 def replace_line(path, needle, replacement):
     with open(path, "r", encoding="utf-8") as f:
@@ -35,42 +50,50 @@ def replace_line(path, needle, replacement):
         out.append(replacement + "\n")
 
     with open(path, "w", encoding="utf-8") as f:
-        f.writelines(out)   
+        f.writelines(out)
 
-def ensure_buildx():
-    r = subprocess.run(["docker", "buildx", "version"],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL)
 
-    if r.returncode != 0:
-        print("buildx not available in docker")
-        sys.exit(1)
+def ensure_buildx(env):
+    """Ensure buildx is available and a builder is active. Uses the provided env."""
+    try:
+        run_output(["docker", "info"], env=env)
+    except subprocess.CalledProcessError:
+        die("Cannot talk to Docker daemon. Upewnij się, że w tym shellu docker działa (rootless: poprawnie ustawiony DOCKER_HOST / XDG_RUNTIME_DIR).")
 
-    result = subprocess.check_output(["docker", "buildx", "ls"], text=True)
+    bx = subprocess.run(["docker", "buildx", "version"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if bx.returncode != 0:
+        die("docker buildx is not available in your docker CLI. Ensure docker CLI supports buildx.")
+
+    try:
+        result = run_output(["docker", "buildx", "ls"], env=env)
+    except subprocess.CalledProcessError:
+        die("Failed to list buildx builders. Check Docker daemon / buildx installation.")
 
     if "*" in result:
         print("buildx builder already active")
         return
 
-    print("creating buildx builder...")
-    run(["docker", "buildx", "create", "--use"])
+    print("Creating and using a new buildx builder...")
+    run(["docker", "buildx", "create", "--use"], env=env)
+
 
 tmp = tempfile.mkdtemp(prefix="parabol-build-", dir=os.path.expanduser("~"))
 print("tmp:", tmp)
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+env = os.environ.copy()
+env.setdefault("DOCKER_BUILDKIT", "1")
 
 try:
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    ensure_buildx(env)
 
-    ensure_buildx()
+    run(["git", "clone", "--depth", "1", REPO, tmp], env=env)
 
-    # clone repo
-    run(["git", "clone", "--depth", "1", REPO, tmp])
-
-    # copy .env.example -> local .env
     env_example = os.path.join(tmp, ".env.example")
+    if not os.path.exists(env_example):
+        die(f".env.example not found in repo root ({env_example})")
     shutil.copyfile(env_example, ENV_PATH)
 
-    # modify env
     replace_line(ENV_PATH, "# IS_ENTERPRISE", "IS_ENTERPRISE=true")
     replace_line(ENV_PATH, "HOST=", "HOST='10.127.80.126'")
     replace_line(ENV_PATH, "PROTO=", "PROTO='http'")
@@ -79,23 +102,10 @@ try:
 
     shutil.copyfile(ENV_PATH, os.path.join(tmp, ".env"))
 
-    # read node version (optional)
-    with open(os.path.join(tmp, "package.json")) as f:
-        pkg = json.load(f)
-    node_version = pkg["engines"]["node"].lstrip("^")
-    print("node version:", node_version)
+    sha = run_output(["git", "-C", tmp, "rev-parse", "HEAD"], env=env).strip()
 
-    sha = subprocess.check_output(
-        ["git", "-C", tmp, "rev-parse", "HEAD"],
-        text=True
-    ).strip()
-
-    env = os.environ.copy()
-    env["DOCKER_BUILDKIT"] = "1"
-
-    run([
+    build_cmd = [
         "docker", "buildx", "build",
-        "--progress=plain",
         "--cache-from", f"type=local,src={CACHE_DIR}",
         "--cache-to", f"type=local,dest={CACHE_DIR},mode=max",
         "--build-arg", f"PUBLIC_URL=/parabol",
@@ -105,9 +115,10 @@ try:
         "-f", LOCAL_DOCKERFILE,
         "-t", IMAGE,
         tmp
-    ], env=env)
+    ]
+
+    run(build_cmd, env=env)
 
     print("Built image:", IMAGE)
-
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
