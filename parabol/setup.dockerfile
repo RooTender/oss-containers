@@ -21,22 +21,22 @@ COPY pnpm-lock.yaml package.json pnpm-workspace.yaml ./
 COPY packages ./packages
 
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    corepack enable pnpm && pnpm install --frozen-lockfile
+    corepack enable pnpm \
+ && pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm build
+RUN pnpm build \
+ && pnpm prune --prod
 
 ######## RUNTIME ########
-FROM node:22-trixie-slim AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /home/node/parabol
 
 ENV NODE_ENV=production
 
-COPY --from=builder /app/build ./build
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/build ./build
 COPY --from=builder /app/node_modules ./node_modules
 
 USER node
-EXPOSE 3000
-
 CMD ["node", "dist/web.js"]

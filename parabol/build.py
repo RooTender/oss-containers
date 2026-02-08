@@ -4,6 +4,8 @@ import tempfile
 import shutil
 import os
 import sys
+import re
+
 
 REPO = "https://github.com/ParabolInc/parabol.git"
 ENV_PATH = "./.env"
@@ -24,18 +26,22 @@ def out(cmd, env):
     print("> " + " ".join(cmd))
     return subprocess.check_output(cmd, env=env, text=True).strip()
 
-def replace_line(path, needle, replacement):
+def replace_line(path, key, replacement):
+    pattern = re.compile(rf"^\s*#?\s*{re.escape(key)}=.*$")
+    replaced = False
+    out_lines = []
+
     with open(path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-    out_lines, replaced = [], False
-    for line in lines:
-        if needle in line:
-            out_lines.append(replacement + "\n")
-            replaced = True
-        else:
-            out_lines.append(line)
+        for line in f:
+            if pattern.match(line):
+                out_lines.append(replacement + "\n")
+                replaced = True
+            else:
+                out_lines.append(line)
+
     if not replaced:
         out_lines.append(replacement + "\n")
+
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(out_lines)
 
