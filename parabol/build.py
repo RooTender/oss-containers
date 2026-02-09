@@ -15,7 +15,10 @@ UPSTREAM_DOCKERFILE = "docker/images/parabol-ubi/dockerfiles/basic.dockerfile"
 
 IMAGE = "parabol:local"
 LOCAL_DOCKERFILE = os.path.abspath("setup.dockerfile")
-BUILDER_NAME = "parabol-builder"
+
+BUILDER_IMAGE = "parabol:builder"
+BUILD_DOCKERFILE = os.path.abspath("docker/build.dockerfile")
+RUNTIME_DOCKERFILE = os.path.abspath("docker/runtime.dockerfile")
 
 
 def die(msg, code=1):
@@ -44,12 +47,12 @@ def ensure_buildx(env):
 
     run([
         "docker", "buildx", "create",
-        "--name", BUILDER_NAME,
+        "--name", BUILDER_IMAGE,
         "--driver", "docker-container",
         "--use"
     ], env)
 
-    run(["docker", "buildx", "inspect", BUILDER_NAME, "--bootstrap"], env)
+    run(["docker", "buildx", "inspect", BUILDER_IMAGE, "--bootstrap"], env)
 
 
 def clone_repo(tmp, env):
@@ -96,6 +99,21 @@ def copy_patch(tmp):
     shutil.copyfile(PATCH_FILE, os.path.join(tmp, PATCH_FILE))
 
 
+def build_builder(tmp, sha, env):
+    print("Building builder image...")
+
+    run([
+        "docker", "buildx", "build",
+        "--build-arg", "PUBLIC_URL=/parabol",
+        "--build-arg", "CDN_BASE_URL=//10.127.80.126/parabol",
+        "--build-arg", f"DD_GIT_COMMIT_SHA={sha}",
+        "--build-arg", f"DD_GIT_REPOSITORY_URL={REPO}",
+        "-f", BUILD_DOCKERFILE,
+        "-t", BUILDER_IMAGE,
+        tmp
+    ], env)
+
+
 def build_upstream(tmp, sha, env):
     print("Building upstream base image...")
 
@@ -110,14 +128,10 @@ def build_upstream(tmp, sha, env):
     ], env)
 
 
-def build_local(tmp, sha, env):
+def build_runtime(tmp, env):
     run([
         "docker", "buildx", "build",
-        "--build-arg", "PUBLIC_URL=/parabol",
-        "--build-arg", "CDN_BASE_URL=//10.127.80.126/parabol",
-        "--build-arg", f"DD_GIT_COMMIT_SHA={sha}",
-        "--build-arg", f"DD_GIT_REPOSITORY_URL={REPO}",
-        "-f", LOCAL_DOCKERFILE,
+        "-f", RUNTIME_DOCKERFILE,
         "-t", IMAGE,
         tmp
     ], env)
@@ -137,8 +151,9 @@ def main():
 
         sha = out(["git", "-C", tmp, "rev-parse", "HEAD"], env)
 
+        build_builder(tmp, sha, env)
         build_upstream(tmp, sha, env)
-        build_local(tmp, sha, env)
+        build_runtime(tmp, env)
 
         print("Built image:", IMAGE)
 
