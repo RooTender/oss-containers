@@ -99,7 +99,7 @@ def copy_patch(tmp):
     shutil.copyfile(PATCH_FILE, os.path.join(tmp, PATCH_FILE))
 
 
-def build_builder(tmp, sha, env):
+def build_stage(tmp, sha, env):
     print("Building builder image...")
 
     run([
@@ -113,8 +113,15 @@ def build_builder(tmp, sha, env):
         tmp
     ], env)
 
+    cid = out(["docker", "create", BUILDER_IMAGE], env)
 
-def build_upstream(tmp, sha, env):
+    run(["docker", "cp", f"{cid}:/app/build", tmp], env)
+    run(["docker", "cp", f"{cid}:/app/dist", tmp], env)
+
+    run(["docker", "rm", cid], env)
+
+
+def upstream_stage(tmp, sha, env):
     print("Building upstream base image...")
 
     run([
@@ -128,7 +135,7 @@ def build_upstream(tmp, sha, env):
     ], env)
 
 
-def build_runtime(tmp, env):
+def runtime_stage(tmp, env):
     run([
         "docker", "buildx", "build",
         "-f", RUNTIME_DOCKERFILE,
@@ -151,9 +158,9 @@ def main():
 
         sha = out(["git", "-C", tmp, "rev-parse", "HEAD"], env)
 
-        build_builder(tmp, sha, env)
-        build_upstream(tmp, sha, env)
-        build_runtime(tmp, env)
+        build_stage(tmp, sha, env)
+        upstream_stage(tmp, sha, env)
+        runtime_stage(tmp, env)
 
         print("Built image:", IMAGE)
 
