@@ -15,7 +15,6 @@ UPSTREAM_DOCKERFILE = "docker/images/parabol-ubi/dockerfiles/basic.dockerfile"
 
 IMAGE = "parabol:local"
 LOCAL_DOCKERFILE = os.path.abspath("setup.dockerfile")
-CACHE_DIR = os.path.abspath(".docker-cache")
 BUILDER_NAME = "parabol-builder"
 
 
@@ -102,8 +101,6 @@ def build_upstream(tmp, sha, env):
 
     run([
         "docker", "buildx", "build",
-        "--cache-from", f"type=local,src={CACHE_DIR}",
-        "--cache-to", f"type=local,dest={CACHE_DIR},mode=max",
         "--build-arg", "_NODE_VERSION=22",
         "--build-arg", f"DD_GIT_COMMIT_SHA={sha}",
         "--build-arg", f"DD_GIT_REPOSITORY_URL={REPO}",
@@ -116,8 +113,6 @@ def build_upstream(tmp, sha, env):
 def build_local(tmp, sha, env):
     run([
         "docker", "buildx", "build",
-        "--cache-from", f"type=local,src={CACHE_DIR}",
-        "--cache-to", f"type=local,dest={CACHE_DIR},mode=max",
         "--build-arg", "PUBLIC_URL=/parabol",
         "--build-arg", "CDN_BASE_URL=//10.127.80.126/parabol",
         "--build-arg", f"DD_GIT_COMMIT_SHA={sha}",
@@ -130,7 +125,6 @@ def build_local(tmp, sha, env):
 
 def main():
     tmp = tempfile.mkdtemp(prefix="parabol-build-", dir=os.path.expanduser("~"))
-    os.makedirs(CACHE_DIR, exist_ok=True)
 
     env = dict(os.environ)
     env["DOCKER_BUILDKIT"] = "1"
