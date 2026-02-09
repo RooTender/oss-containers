@@ -70,7 +70,6 @@ def prepare_env(tmp):
     replace_line(ENV_PATH, "HOST=", "HOST=10.127.80.126")
     replace_line(ENV_PATH, "PROTO=", "PROTO=http")
     replace_line(ENV_PATH, "PORT=", "PORT=80")
-    replace_line(ENV_PATH, "CDN_BASE_URL=", "CDN_BASE_URL=//10.127.80.126/parabol")
 
     shutil.copyfile(ENV_PATH, os.path.join(tmp, ".env"))
 
@@ -105,7 +104,6 @@ def build_stage(tmp, sha, env):
     run([
         "docker", "buildx", "build",
         "--build-arg", "PUBLIC_URL=/parabol",
-        "--build-arg", "CDN_BASE_URL=//10.127.80.126/parabol",
         "--build-arg", f"DD_GIT_COMMIT_SHA={sha}",
         "--build-arg", f"DD_GIT_REPOSITORY_URL={REPO}",
         "-f", BUILD_DOCKERFILE,
@@ -144,6 +142,14 @@ def runtime_stage(tmp, env):
     ], env)
 
 
+def cleanup_images(env):
+    for img in (BUILDER_IMAGE, BASE_IMAGE):
+        try:
+            run(["docker", "image", "rm", "-f", img], env)
+        except subprocess.CalledProcessError:
+            print(f"Skipping cleanup for {img}")
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="parabol-build-", dir=os.path.expanduser("~"))
 
@@ -165,6 +171,7 @@ def main():
         print("Built image:", IMAGE)
 
     finally:
+        cleanup_images(env)
         shutil.rmtree(tmp, ignore_errors=True)
 
 
