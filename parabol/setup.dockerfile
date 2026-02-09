@@ -18,20 +18,13 @@ ENV CI=true
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/*/package.json packages/*/
-COPY patch.js .
+COPY . .
 
 RUN node patch.js
 
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    corepack enable pnpm \
- && pnpm install --frozen-lockfile --ignore-scripts
-
-COPY . .
-
+    corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts
 RUN pnpm build
-
 RUN pnpm prune --prod
 
 ######## RUNTIME ########
