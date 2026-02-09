@@ -14,7 +14,8 @@ ENV DD_GIT_COMMIT_SHA=${DD_GIT_COMMIT_SHA}
 ENV DD_GIT_REPOSITORY_URL=${DD_GIT_REPOSITORY_URL}
 ENV CI=true
 
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates build-essential python3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
@@ -22,6 +23,6 @@ COPY . .
 RUN node patch.js
 
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts
+    corepack enable pnpm && pnpm install --frozen-lockfile
 RUN pnpm build
 RUN pnpm prune --prod

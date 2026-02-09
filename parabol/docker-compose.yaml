@@ -70,6 +70,7 @@ networks:
   parabol-net:
   gateway-net:
     external: true
+    name: gateway-net
 
 volumes:
   pgdata:
