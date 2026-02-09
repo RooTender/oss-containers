@@ -18,11 +18,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates build-essential python3 pkg-config libvips-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json pnpm-lock.yaml patch.js ./
+COPY . .
+
 RUN node patch.js
 
-RUN corepack enable pnpm && pnpm install --frozen-lockfile
-COPY . .
+RUN corepack enable pnpm \
+ && pnpm install --no-frozen-lockfile
 
 RUN pnpm build
 RUN pnpm prune --prod
