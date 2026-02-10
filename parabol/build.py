@@ -3,7 +3,6 @@ import tempfile
 import shutil
 import os
 import json
-import re
 
 REPO = "https://github.com/ParabolInc/parabol.git"
 ENV_PATH = "./.env"
@@ -12,33 +11,35 @@ IMAGE = "parabol:local"
 LOCAL_DOCKERFILE = os.path.abspath("setup.dockerfile")
 
 def replace_line(path, key, replacement):
-    pattern = re.compile(rf"^\s*#?\s*{re.escape(key)}=.*$")
-    replaced = False
-    out_lines = []
-
     with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            if pattern.match(line):
-                out_lines.append(replacement + "\n")
-                replaced = True
-            else:
-                out_lines.append(line)
+        lines = f.readlines()
 
-    if not replaced:
-        out_lines.append(replacement + "\n")
+    for i, line in enumerate(lines):
+        if line.startswith(key):
+            lines[i] = f"{replacement}\n"
 
     with open(path, "w", encoding="utf-8") as f:
-        f.writelines(out_lines)
+        f.writelines(lines)
 
 def run(cmd, env=None):
     print(">", " ".join(cmd))
     subprocess.run(cmd, check=True, env=env)
 
+def get_tailscale_ip():
+    result = subprocess.run(
+        ["tailscale", "ip", "-4"],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    return result.stdout.strip()
+
+print(f"Building image for: {get_tailscale_ip()}")
+
 tmp = tempfile.mkdtemp(prefix="parabol-build-", dir=os.path.expanduser("~"))
 print("tmp:", tmp)
 
 try:
-    # clone repo
     run(["git", "clone", "--depth", "1", REPO, tmp])
 
     with open(os.path.join(tmp, "package.json")) as f:
@@ -52,7 +53,6 @@ try:
         text=True
     ).strip()
 
-    # build JS
     run([
         "docker", "run", "--rm",
         "-v", f"{tmp}:/app",
@@ -62,13 +62,12 @@ try:
         "apt-get update && apt-get install -y git && "
         "corepack enable && "
         "pnpm install --frozen-lockfile && "
-        "PUBLIC_URL=/parabol pnpm build"
+        "pnpm build"
     ])
 
     env = os.environ.copy()
     env["DOCKER_BUILDKIT"] = "1"
 
-    # build upstream base image
     run([
         "docker", "build",
         "--build-arg", f"_NODE_VERSION={node_version}",
@@ -79,7 +78,6 @@ try:
         tmp
     ], env=env)
 
-    # build your local extension Dockerfile
     run([
         "docker", "build",
         "-f", LOCAL_DOCKERFILE,
@@ -98,7 +96,7 @@ try:
     run(["docker", "rm", cid])
 
     replace_line(ENV_PATH, "# IS_ENTERPRISE", "IS_ENTERPRISE=true")
-    replace_line(ENV_PATH, "HOST=", "HOST='10.127.80.126'")
+    replace_line(ENV_PATH, "HOST=", f"HOST='{get_tailscale_ip()}'")
     replace_line(ENV_PATH, "PROTO=", "PROTO='http'")
 
 finally:
