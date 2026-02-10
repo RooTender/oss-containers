@@ -5,3 +5,7 @@
 parabol.bib {
     reverse_proxy parabol-app:3000
 }
+
+:80 {
+    respond "alive"
+}
