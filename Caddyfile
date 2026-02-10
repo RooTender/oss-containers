@@ -2,12 +2,6 @@
     auto_https off
 }
 
-parabol.bib:80 {
-    handle /static/* {
-        reverse_proxy parabol-app:3000
-    }
-
-    handle {
-        reverse_proxy parabol-app:3000
-    }
+parabol.bib:80, 100.91.240.45:80 {
+    reverse_proxy parabol-app:3000
 }
