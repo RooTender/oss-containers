@@ -12,6 +12,21 @@ jobs:
       contents: write
       packages: write
 
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_USER: tempuser
+          POSTGRES_PASSWORD: temppassword
+          POSTGRES_DB: tempdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U tempuser -d tempdb"
+          --health-interval=2s
+          --health-timeout=5s
+          --health-retries=20
+
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +61,13 @@ jobs:
         working-directory: upstream
         run: pnpm install --frozen-lockfile
 
+      - name: Wait for Postgres
+        run: |
+          until pg_isready -h localhost -p 5432 -U tempuser; do
+            echo "Waiting for postgres..."
+            sleep 1
+          done
+
       - name: DB codegen
         working-directory: upstream
         run: |
@@ -76,11 +98,21 @@ jobs:
             upstream \
             --push
 
+      - name: Generate runtime Dockerfile
+        run: |
+          cat > runtime.Dockerfile <<'EOF'
+          ARG BASE_TAG
+          FROM ghcr.io/${{ github.repository }}/parabol:base-${BASE_TAG}
+
+          WORKDIR /home/node/parabol
+          USER node
+          EOF
+
       - name: Build runtime image
         run: |
           docker buildx build \
             --build-arg BASE_TAG=${{ steps.meta.outputs.sha }} \
-            -f setup.dockerfile \
+            -f runtime.Dockerfile \
             -t ghcr.io/${{ github.repository }}/parabol:${{ steps.meta.outputs.sha }} \
             -t ghcr.io/${{ github.repository }}/parabol:latest \
             --cache-from type=gha \
