@@ -30,7 +30,7 @@ services:
       retries: 10
 
   parabol-init:
-    image: parabol:runtime
+    image: runtimeghcr.io/RooTender/bibently_hub/parabol:latest
     container_name: parabol-init
     depends_on:
       postgres:
@@ -48,7 +48,7 @@ services:
       - parabol-net
 
   parabol:
-    image: parabol:runtime
+    image: runtimeghcr.io/RooTender/bibently_hub/parabol:latest
     container_name: parabol-app
     restart: unless-stopped
     depends_on:
