@@ -79,17 +79,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: upstream/pnpm-lock.yaml
 
-      - name: Cache node_modules
-        id: nmcache
-        uses: actions/cache@v5
-        with:
-          path: upstream/node_modules
-          key: node_modules-${{ runner.os }}-${{ steps.pnpm.outputs.version }}-${{ hashFiles('upstream/pnpm-lock.yaml') }}
-          restore-keys: |
-            node_modules-${{ runner.os }}-${{ steps.pnpm.outputs.version }}-
-
       - name: Install deps
-        if: steps.nmcache.outputs.cache-hit != 'true'
         working-directory: upstream
         run: pnpm install --frozen-lockfile
 
@@ -151,13 +141,3 @@ jobs:
             --cache-to type=gha,mode=max \
             upstream \
             --push
-
-      - name: Create or update release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: parabol-v${{ steps.semver.outputs.full }}
-          files: dist/.env
-          fail_on_unmatched_files: false
-          draft: false
-          prerelease: false
-          make_latest: true
