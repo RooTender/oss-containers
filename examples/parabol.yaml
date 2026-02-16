@@ -14,11 +14,9 @@ services:
     restart: unless-stopped
 
   parabol:
-    image: ghcr.io/rootender/bibently_hub/parabol:latest
+    image: ghcr.io/rootender/oss-containers/parabol:latest
     restart: unless-stopped
     env_file: [.env]
-    ports:
-      - "10001:10001"
     environment:
       POSTGRES_HOST: postgres
       REDIS_URL: redis://redis:6379

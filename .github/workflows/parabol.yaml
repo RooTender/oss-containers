@@ -1,4 +1,4 @@
-name: build-parabol
+name: parabol
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  docker:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -46,8 +46,22 @@ jobs:
         run: |
           SHA=$(git -C upstream rev-parse HEAD)
           NODE=$(jq -r '.engines.node' upstream/package.json | sed 's/\^//')
+          VERSION=$(jq -r '.version' upstream/package.json)
+
           echo "sha=$SHA" >> $GITHUB_OUTPUT
           echo "node=$NODE" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Derive semver tags
+        id: semver
+        run: |
+          FULL=${{ steps.meta.outputs.version }}
+          MINOR=$(echo $FULL | cut -d. -f1,2)
+          MAJOR=$(echo $FULL | cut -d. -f1)
+
+          echo "full=$FULL" >> $GITHUB_OUTPUT
+          echo "minor=$MINOR" >> $GITHUB_OUTPUT
+          echo "major=$MAJOR" >> $GITHUB_OUTPUT
 
       - name: Read pnpm version
         id: pnpm
@@ -128,24 +142,22 @@ jobs:
           docker buildx build \
             --build-arg BASE_TAG=${{ steps.meta.outputs.sha }} \
             -f runtime.Dockerfile \
-            -t ghcr.io/${{ steps.repo_name_normalized.outputs.norm_name }}/parabol:${{ steps.meta.outputs.sha }} \
+            -t ghcr.io/${{ steps.repo_name_normalized.outputs.norm_name }}/parabol:${{ steps.semver.outputs.full }} \
+            -t ghcr.io/${{ steps.repo_name_normalized.outputs.norm_name }}/parabol:${{ steps.semver.outputs.minor }} \
+            -t ghcr.io/${{ steps.repo_name_normalized.outputs.norm_name }}/parabol:${{ steps.semver.outputs.major }} \
+            -t ghcr.io/${{ steps.repo_name_normalized.outputs.norm_name }}/parabol:sha-${{ steps.meta.outputs.sha }} \
             -t ghcr.io/${{ steps.repo_name_normalized.outputs.norm_name }}/parabol:latest \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
             upstream \
             --push
 
-      - name: Generate env
-        run: |
-          mkdir -p dist
-          cp upstream/.env.example dist/.env
-
-          sed -i "s/^# IS_ENTERPRISE/IS_ENTERPRISE=true/" dist/.env
-          sed -i "s/^PROTO=.*/PROTO='https'/" dist/.env
-          sed -i "s/^PORT=.*/PORT='10001'/" dist/.env
-
-      - name: Create release
+      - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ steps.meta.outputs.sha }}
+          tag_name: parabol-v${{ steps.semver.outputs.full }}
           files: dist/.env
+          fail_on_unmatched_files: false
+          draft: false
+          prerelease: false
+          make_latest: true
