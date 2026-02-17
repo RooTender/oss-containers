@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/parabol.yml"
+      - ".github/workflows/parabol.yaml"
       - "parabol/**"
   workflow_dispatch:
 
