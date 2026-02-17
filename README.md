@@ -27,6 +27,9 @@ docker run -d \
 
 This and other `docker-compose` examples you can find in the [examples](examples/) folder.
 
-## License
+## Licensing
 
-Each container follows the license of its upstream project. See individual repositories for details.
+This repository contains build infrastructure licensed under MIT.
+
+Each containerized application follows the license of its upstream project.
+See upstream repositories for details.
