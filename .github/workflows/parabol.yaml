@@ -125,6 +125,8 @@ jobs:
 
           WORKDIR /home/node/parabol
           USER node
+
+          COPY --chown=node package.json .
           EOF
 
       - name: Build runtime image
